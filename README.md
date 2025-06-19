@@ -27,10 +27,10 @@ A modular, multi-purpose chatbot with an advanced React UI that lets users selec
 | `Chat`           | General conversation and Q&A              | `llama3-8b-8192`                     | Groq         |
 | `Code`           | Programming help and code generation      | `llama3-70b-8192`                    | Groq         |
 | `Write`          | Long-form writing, storytelling           | `llama3-8b-8192`                     | Groq         |
-| `Brainstorm`     | Idea generation and creative prompts      | `llama3-8b-8192`                     | Groq         |
-| `Math`           | Solve math problems with explanations     | `llama3-8b-8192`                     | Groq         |
-| `Research`       | Deep info gathering, summarization, Q&A   | `llama3-70b-8192`                    | Groq         |
-| `Email`          | Draft professional or casual emails       | `llama3-8b-8192`                     | Groq         |
+| `Brainstorm`     | Idea generation and creative prompts      | `qwen/qwen3-32b:free`                     | OpenRouter        |
+| `Math`           | Solve math problems with explanations     | `thudm/glm-z1-32b:free`                     | OpenRouter        |
+| `Research`       | Deep info gathering, summarization, Q&A   | `deepseek/deepseek-r1-0528:free`                    | OpenRouter         |
+| `Email`          | Draft professional or casual emails       | `sarvamai/sarvam-m:free`                     | OpenRouter         |
 | `Text-to-Speech` | Convert chatbot replies to audio          | `playai-tts`                         | Groq         |
 | `Transcribe`     | Audio file (.wav) transcription           | `distil-whisper-large-v3-en`         | Groq         |
 | `Analyze`        | Analyze images, PDFs, and text files      | `llama3-8b-8192`                     | Groq         |
