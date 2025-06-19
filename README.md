@@ -1,6 +1,6 @@
 # 🤖 Multifunctional Chatbot using OpenRouter & Groq
 
-A modular, multi-purpose chatbot with an advanced React UI that lets users select from a variety of specialized tasks such as **Chatting, Coding, Story Writing, Math solving, Text-to-Speech, Audio Transcription, Research Assistance, Email Drafting**, and **Content Moderation**. Powered by ultra-fast models from **Groq** and **OpenRouter APIs**.
+A modular, multi-purpose chatbot with an advanced React UI that lets users select from a variety of specialized tasks such as **Chatting, Coding, Story Writing, Math solving, Text-to-Speech, Audio Transcription, Research Assistance, Email Drafting, File Analysis**, and **Content Moderation**. Powered by ultra-fast models from **Groq** and **OpenRouter APIs**.
 
 ## 🎯 Key Features
 
@@ -12,6 +12,7 @@ A modular, multi-purpose chatbot with an advanced React UI that lets users selec
 - 📧 Email drafting for professional and personal communications
 - 🔊 Text-to-Speech (TTS) for audio output of responses
 - 🔉 Audio transcription of `.wav` files using Whisper
+- 📄 File analysis for images, PDFs, and text files with AI-powered insights
 - 🔒 Real-time content moderation with LLaMA Guard
 - 🌐 Clean, dynamic React UI with dropdown mode selector and file uploader
 
@@ -28,6 +29,7 @@ A modular, multi-purpose chatbot with an advanced React UI that lets users selec
 | `Email`          | Draft professional or casual emails       | `sarvamai/sarvam-m:free`            | OpenRouter   |
 | `Text-to-Speech` | Convert chatbot replies to audio          | `playai-tts`                   | Groq   |
 | `Transcribe`     | Audio file (.wav) transcription           | `distil-whisper-large-v3-en`        | Groq  |
+| `Analyze`        | Analyze images, PDFs, and text files      | `deepseek/deepseek-r1-0528:free`     | OpenRouter   |
 | `Moderate`       | Content safety and policy moderation      | `llama-guard-4-12b`                  | Groq   |
 
 ## 🧰 Tech Stack Overview
@@ -38,7 +40,7 @@ A modular, multi-purpose chatbot with an advanced React UI that lets users selec
 | Backend       | Python (FastAPI)                       |
 | Model Access  | Groq API, OpenRouter API              |
 | Task Routing  | Dropdown & command-based mode selection|
-| File Support  | `.wav` upload for transcription        |
+| File Support  | `.wav` upload for transcription, images (JPG, PNG), PDFs, text files (TXT, CSV, JSON, MD) for analysis |
 | TTS Output    | Audio playback component integrated    |
 | Environment   | Configured via environment variables   |
 | Hosting       | Docker ready                           |
@@ -98,6 +100,33 @@ A modular, multi-purpose chatbot with an advanced React UI that lets users selec
 
 ```
 /
+```
+
+## 📄 File Analysis Feature
+
+### Supported File Types
+
+- **Images**: JPG, JPEG, PNG, GIF, BMP
+- **Documents**: PDF
+- **Text Files**: TXT, CSV, JSON, MD
+
+### Analysis Capabilities
+
+- **Image Analysis**: Extract metadata (dimensions, format, size) and perform OCR to extract text
+- **PDF Analysis**: Extract metadata, document info, and text content
+- **Text File Analysis**: Analyze structure and content of text files
+- **CSV Analysis**: Extract headers, sample data, and structure information
+- **AI-Powered Insights**: Get AI-generated summaries and insights about the file contents
+
+### Technical Implementation
+
+The file analysis feature is implemented using:
+
+- **Backend**: A `FileAnalyzer` class that handles different file types and extracts relevant information
+- **OCR**: Pytesseract for extracting text from images
+- **PDF Processing**: PyPDF2 for extracting text and metadata from PDFs
+- **AI Analysis**: OpenRouter API for generating insights about file contents
+- **Frontend**: Enhanced UI components for file upload and analysis result display
 ├── backend/                # Python FastAPI backend
 │   ├── app.py             # Main FastAPI application
 │   ├── models/            # Data models

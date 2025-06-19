@@ -9,16 +9,17 @@ interface ModeSelectorProps {
 }
 
 const modes: { id: ChatMode; name: string; description: string; icon: string }[] = [
-  { id: 'chat', name: 'Chat', description: 'General conversation and Q&A', icon: '💬' },
-  { id: 'code', name: 'Code', description: 'Programming help and code generation', icon: '💻' },
-  { id: 'write', name: 'Write', description: 'Long-form writing, storytelling', icon: '✍️' },
-  { id: 'brainstorm', name: 'Brainstorm', description: 'Idea generation and creative prompts', icon: '🧠' },
-  { id: 'math', name: 'Math', description: 'Solve math problems with explanations', icon: '🔢' },
-  { id: 'research', name: 'Research', description: 'Deep info gathering, summarization, Q&A', icon: '🔍' },
-  { id: 'email', name: 'Email', description: 'Draft professional or casual emails', icon: '📧' },
-  { id: 'text-to-speech', name: 'Text-to-Speech', description: 'Convert chatbot replies to audio', icon: '🔊' },
-  { id: 'transcribe', name: 'Transcribe', description: 'Audio file (.wav) transcription', icon: '🎤' },
-  { id: 'moderate', name: 'Moderate', description: 'Content safety and policy moderation', icon: '🔒' },
+  { id: 'chat', name: 'Chat', description: 'General conversation', icon: '💬' },
+  { id: 'code', name: 'Code', description: 'Programming assistance', icon: '💻' },
+  { id: 'write', name: 'Write', description: 'Creative writing help', icon: '✍️' },
+  { id: 'brainstorm', name: 'Brainstorm', description: 'Generate ideas', icon: '🧠' },
+  { id: 'math', name: 'Math', description: 'Solve math problems', icon: '🔢' },
+  { id: 'research', name: 'Research', description: 'In-depth information', icon: '🔍' },
+  { id: 'email', name: 'Email', description: 'Draft professional emails', icon: '📧' },
+  { id: 'text-to-speech', name: 'Text to Speech', description: 'Convert text to audio', icon: '🔊' },
+  { id: 'transcribe', name: 'Transcribe', description: 'Convert audio to text', icon: '🎤' },
+  { id: 'analyze', name: 'Analyze Files', description: 'Analyze images, PDFs, and text files', icon: '🔍' },
+  { id: 'moderate', name: 'Moderate', description: 'Content moderation', icon: '🔒' },
 ];
 
 const ModeSelector = ({ selectedMode, onModeChange }: ModeSelectorProps) => {

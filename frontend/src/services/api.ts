@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { ChatRequest, ChatResponse, TTSRequest, TranscriptionResponse, ModelMapping } from '@/types/chat';
+import { ChatRequest, ChatResponse, TTSRequest, TranscriptionResponse, ModelMapping, FileAnalysis } from '@/types/chat';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -30,6 +30,20 @@ export const transcribeAudio = async (file: File): Promise<TranscriptionResponse
   formData.append('file', file);
   
   const response = await api.post<TranscriptionResponse>('/transcribe', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  
+  return response.data;
+};
+
+// File Analysis API
+export const analyzeFile = async (file: File): Promise<FileAnalysis> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  const response = await api.post<FileAnalysis>('/analyze-file', formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
