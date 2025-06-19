@@ -1,7 +1,6 @@
 import { useState, useRef, FormEvent, ChangeEvent } from 'react';
 import { 
   PaperAirplaneIcon, 
-  MicrophoneIcon, 
   XMarkIcon, 
   DocumentIcon, 
   PhotoIcon,
