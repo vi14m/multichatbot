@@ -33,7 +33,7 @@ A modular, multi-purpose chatbot with an advanced React UI that lets users selec
 | `Email`          | Draft professional or casual emails       | `llama3-8b-8192`                     | Groq         |
 | `Text-to-Speech` | Convert chatbot replies to audio          | `playai-tts`                         | Groq         |
 | `Transcribe`     | Audio file (.wav) transcription           | `distil-whisper-large-v3-en`         | Groq         |
-| `Analyze`        | Analyze images, PDFs, and text files      | `llava-next-34b`                     | Groq         |
+| `Analyze`        | Analyze images, PDFs, and text files      | `llama3-8b-8192`                     | Groq         |
 | `Moderate`       | Content safety and policy moderation      | `llama-guard-4-12b`                  | Groq         |
 
 ---
