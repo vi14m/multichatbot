@@ -6,6 +6,11 @@ from typing import Dict, Any, List, Optional, Tuple
 from fastapi import UploadFile, HTTPException
 import requests
 import json
+from io import StringIO
+import csv
+import markdown
+from collections import Counter
+from statistics import mean, median, stdev
 
 # For image analysis
 try:
@@ -29,11 +34,6 @@ try:
     HAS_TABLE_SUPPORT = True
 except ImportError:
     HAS_TABLE_SUPPORT = False
-
-# For text analysis
-from io import StringIO
-import csv
-import markdown
 
 class FileAnalyzer:
     """Class to handle analysis of different file types"""
@@ -593,45 +593,7 @@ class FileAnalyzer:
             start = end - overlap
         
         return chunks
-    
-    def _analyze_column(self, header: str, values: list) -> dict:
-        """Analyze a CSV column: infer type, count unique values, and basic stats."""
-        import re
-        import statistics
-        # Remove empty values
-        clean_values = [v for v in values if v not in (None, '', 'NA', 'N/A')]
-        # Try to infer if column is numeric
-        numeric_values = []
-        for v in clean_values:
-            try:
-                numeric_values.append(float(v))
-            except Exception:
-                pass
-        is_numeric = len(numeric_values) > len(clean_values) // 2 and len(numeric_values) > 0
-        result = {
-            'header': header,
-            'unique_values': len(set(clean_values)),
-            'most_common': max(set(clean_values), key=clean_values.count) if clean_values else None,
-            'type': 'numeric' if is_numeric else 'text',
-        }
-        if is_numeric:
-            result.update({
-                'min': min(numeric_values),
-                'max': max(numeric_values),
-                'mean': statistics.mean(numeric_values) if numeric_values else None,
-                'median': statistics.median(numeric_values) if numeric_values else None,
-            })
-        return result
-    
-    def _chunk_text(self, text: str, max_tokens: int = 500) -> list:
-        """Split text into chunks of approximately max_tokens words for LLM processing."""
-        import re
-        words = re.findall(r'\S+', text)
-        chunks = []
-        for i in range(0, len(words), max_tokens):
-            chunk = ' '.join(words[i:i+max_tokens])
-            chunks.append(chunk)
-        return chunks
+
     # Integration summary for file types:
     # Images: OCR (Tesseract), scene description (Groq LLaVA-Next), semantic labeling (CLIP+LLM via LLaVA-Next)
     # PDFs: Text extraction (PyMuPDF, PyPDF2), table parsing (Camelot), structure preservation (markdown layout)

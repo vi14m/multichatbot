@@ -153,71 +153,8 @@ const ChatInterface = forwardRef<HTMLDivElement, ChatInterfaceProps>(({ mode }, 
         // Analyze the file
         const result = await analyzeFile(file);
         
-        // Create content from analysis results
-        let analysisContent = `# Analysis of ${file.name}\n\n`;
-        
-        // Add file type and metadata
-        analysisContent += `**File Type:** ${result.file_type}\n\n`;
-        
-        // Add metadata section
-        analysisContent += `## Metadata\n\n`;
-        if (result.file_type === 'image') {
-          analysisContent += `- Format: ${result.metadata.format}\n`;
-          analysisContent += `- Dimensions: ${result.metadata.width} × ${result.metadata.height}\n`;
-          analysisContent += `- Size: ${Math.round(result.metadata.file_size / 1024)} KB\n\n`;
-        } else if (result.file_type === 'pdf') {
-          analysisContent += `- Pages: ${result.metadata.num_pages}\n`;
-          analysisContent += `- Size: ${Math.round(result.metadata.file_size / 1024)} KB\n\n`;
-          
-          if (result.metadata.info && Object.keys(result.metadata.info).length > 0) {
-            analysisContent += `### Document Info\n\n`;
-            for (const [key, value] of Object.entries(result.metadata.info)) {
-              analysisContent += `- ${key}: ${value}\n`;
-            }
-            analysisContent += `\n`;
-          }
-        } else if (result.file_type === 'csv') {
-          analysisContent += `- Rows: ${result.metadata.rows}\n`;
-          analysisContent += `- Columns: ${result.metadata.columns}\n\n`;
-          
-          if (result.metadata.headers && result.metadata.headers.length > 0) {
-            analysisContent += `### Headers\n\n`;
-            analysisContent += `\`${result.metadata.headers.join('\`, \`')}\`\n\n`;
-          }
-          
-          if (result.metadata.sample && result.metadata.sample.length > 0) {
-            analysisContent += `### Sample Data\n\n`;
-            analysisContent += `\`\`\`\n`;
-            for (const row of result.metadata.sample) {
-              analysisContent += `${row.join(', ')}\n`;
-            }
-            analysisContent += `\`\`\`\n\n`;
-          }
-        } else if (result.file_type === 'text' || result.file_type === 'json') {
-          analysisContent += `- Lines: ${result.metadata.lines || 'N/A'}\n`;
-          analysisContent += `- Length: ${result.metadata.length} characters\n\n`;
-          
-          if (result.file_type === 'json' && 'is_valid' in result.metadata) {
-            analysisContent += `- Valid JSON: ${result.metadata.is_valid ? 'Yes' : 'No'}\n\n`;
-          }
-        }
-        
-        // Add AI analysis if available
-        if (result.ai_analysis) {
-          analysisContent += `## AI Analysis\n\n${result.ai_analysis}\n\n`;
-        }
-        
-        // Add extracted text preview if available
-        if (result.extracted_text) {
-          const previewText = result.extracted_text.length > 500 
-            ? result.extracted_text.substring(0, 500) + '... (text truncated)' 
-            : result.extracted_text;
-          
-          analysisContent += `## Extracted Text Preview\n\n\`\`\`\n${previewText}\n\`\`\`\n`;
-        }
-        
-        // Add processing time
-        analysisContent += `\n*Processing time: ${result.processing_time.toFixed(2)} seconds*`;
+        // Only show AI analysis for analyzed files (no headings, no file name, no extra sections)
+        let analysisContent = result.ai_analysis ? result.ai_analysis : 'No AI analysis available.';
         
         // Add assistant message with analysis
         const assistantMessage: Message = {
