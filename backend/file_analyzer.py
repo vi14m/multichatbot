@@ -11,6 +11,8 @@ import csv
 import markdown
 from collections import Counter
 from statistics import mean, median, stdev
+from sentence_transformers import SentenceTransformer
+import chromadb
 
 # For image analysis
 try:
@@ -35,6 +37,12 @@ try:
 except ImportError:
     HAS_TABLE_SUPPORT = False
 
+# Integration summary for file types:
+    # Images: OCR (Tesseract), scene description (Groq LLaVA-Next), semantic labeling (CLIP+LLM via LLaVA-Next)
+    # PDFs: Text extraction (PyMuPDF, PyPDF2), table parsing (Camelot), structure preservation (markdown layout)
+    # Text: Token cleanup (regex), chunking (TextSplitter), summarization (LLM prompt)
+    # Each handler method implements these techniques as described.
+
 class FileAnalyzer:
     """Class to handle analysis of different file types"""
     
@@ -42,6 +50,11 @@ class FileAnalyzer:
         self.groq_api_key = groq_api_key
         if not groq_api_key:
             raise ValueError("API key for Groq is required")
+        # RAG: Initialize embedding model and ChromaDB client
+        # Use a small but powerful embedding model
+        self.embedding_model = SentenceTransformer('all-mpnet-base-v2')
+        self.chroma_client = chromadb.Client()
+        self.chroma_collection = self.chroma_client.get_or_create_collection("file_chunks")
     
     async def analyze_file(self, file: UploadFile) -> Dict[str, Any]:
         """Analyze a file based on its type"""
@@ -69,8 +82,17 @@ class FileAnalyzer:
             else:
                 raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_ext}")
             
-            # Add AI analysis if text was extracted
+            # RAG: Add vector DB step for text-based files
             if "extracted_text" in result and result["extracted_text"]:
+                chunks = self._chunk_text(result["extracted_text"])
+                embeddings = self.embedding_model.encode(chunks)
+                metadatas = [{"filename": file.filename, "chunk_id": i} for i in range(len(chunks))]
+                self.chroma_collection.add(
+                    ids=[f"{file.filename}_{i}" for i in range(len(chunks))],
+                    embeddings=embeddings.tolist(),
+                    documents=chunks,
+                    metadatas=metadatas
+                )
                 ai_analysis = self._get_ai_analysis(result["extracted_text"], file.filename)
                 result["ai_analysis"] = ai_analysis
             
@@ -563,7 +585,7 @@ class FileAnalyzer:
         else:
             return {"type": "unknown"}
     
-    def _chunk_text(self, text: str, chunk_size: int = 1000, overlap: int = 100) -> List[str]:
+    def _chunk_text(self, text: str, chunk_size: int = 512, overlap: int = 64) -> List[str]:
         """Split text into overlapping chunks for better analysis."""
         if not text or len(text) <= chunk_size:
             return [text] if text else []
@@ -594,8 +616,64 @@ class FileAnalyzer:
         
         return chunks
 
-    # Integration summary for file types:
-    # Images: OCR (Tesseract), scene description (Groq LLaVA-Next), semantic labeling (CLIP+LLM via LLaVA-Next)
-    # PDFs: Text extraction (PyMuPDF, PyPDF2), table parsing (Camelot), structure preservation (markdown layout)
-    # Text: Token cleanup (regex), chunking (TextSplitter), summarization (LLM prompt)
-    # Each handler method implements these techniques as described.
+    def rag_query(self, question: str, filename: str, top_k: int = 3, relevance_threshold: float = 0.75) -> str:
+        """Hybrid RAG: Retrieve relevant chunks using multiple embedding models and context-fallback prompt, with relevance threshold filtering."""
+        # Hybrid: Use two embedding models for retrieval
+        q_emb_main = self.embedding_model.encode([question])[0]
+        if not hasattr(self, 'secondary_embedding_model'):
+            self.secondary_embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        q_emb_secondary = self.secondary_embedding_model.encode([question])[0]
+
+        # Query ChromaDB for both embeddings
+        results_main = self.chroma_collection.query(
+            query_embeddings=[q_emb_main.tolist()],
+            n_results=top_k,
+            where={"filename": filename},
+            include=["distances", "documents"]
+        )
+        results_secondary = self.chroma_collection.query(
+            query_embeddings=[q_emb_secondary.tolist()],
+            n_results=top_k,
+            where={"filename": filename},
+            include=["distances", "documents"]
+        )
+        # Merge and deduplicate chunks (by text), keep max similarity for each chunk
+        chunk_scores = {}
+        for results in [results_main, results_secondary]:
+            docs = results.get('documents', [[]])[0]
+            dists = results.get('distances', [[]])[0]
+            for doc, dist in zip(docs, dists):
+                if doc:
+                    # ChromaDB returns L2 distance by default; convert to similarity if needed
+                    # For cosine, similarity = 1 - distance
+                    similarity = 1 - dist
+                    if doc not in chunk_scores or similarity > chunk_scores[doc]:
+                        chunk_scores[doc] = similarity
+        # Filter by threshold and sort by similarity
+        relevant_chunks = [doc for doc, sim in sorted(chunk_scores.items(), key=lambda x: -x[1]) if sim >= relevance_threshold]
+        # Use up to top 3 relevant chunks
+        context = "\n".join(relevant_chunks[:3])
+
+        # Improved prompt template with context fallback logic
+        prompt = (
+            "You are a friendly and knowledgeable AI assistant designed to help users with accurate, context-aware answers.\n\n"
+            "When context is provided, use ONLY the information in the context. If context is not available or insufficient, rely on your general knowledge—but always prioritize context when available.\n\n"
+            "Respond conversationally and helpfully.\n\n"
+            "{%- if context %}\n"
+            "Context (from documents):\n"
+            "--------------------------\n"
+            "{{ context }}\n"
+            "--------------------------\n"
+            "{%- endif %}\n\n"
+            "User: {{ question }}\n"
+            "Assistant:"
+        )
+        # Render the template (simple replacement, not full Jinja)
+        if context.strip():
+            rendered_prompt = prompt.replace("{%- if context %}\nContext (from documents):\n--------------------------\n{{ context }}\n--------------------------\n{%- endif %}\n\n", f"Context (from documents):\n--------------------------\n{context}\n--------------------------\n\n")
+            rendered_prompt = rendered_prompt.replace("{{ question }}", question)
+            rendered_prompt = rendered_prompt.replace("{{ context }}", context)
+        else:
+            # If no relevant context, just ask the question directly
+            rendered_prompt = f"User: {question}\nAssistant:"
+        return self._get_ai_analysis(rendered_prompt, filename)
