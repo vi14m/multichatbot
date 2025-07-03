@@ -50,9 +50,12 @@ class FileAnalyzer:
         self.groq_api_key = groq_api_key
         if not groq_api_key:
             raise ValueError("API key for Groq is required")
-        # RAG: Initialize embedding model and ChromaDB client
-        # Use a small but powerful embedding model
-        self.embedding_model = SentenceTransformer('all-mpnet-base-v2')
+        # Use multiple low-size, memory-efficient embedding models for hybrid retrieval
+        self.embedding_models = [
+            SentenceTransformer("intfloat/e5-small-v2", device="cpu"),
+            SentenceTransformer("BAAI/bge-small-en-v1.5", device="cpu"),
+            SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+        ]
         self.chroma_client = chromadb.Client()
         self.chroma_collection = self.chroma_client.get_or_create_collection("file_chunks")
     
@@ -85,13 +88,34 @@ class FileAnalyzer:
             # RAG: Add vector DB step for text-based files
             if "extracted_text" in result and result["extracted_text"]:
                 chunks = self._chunk_text(result["extracted_text"])
-                embeddings = self.embedding_model.encode(chunks)
-                metadatas = [{"filename": file.filename, "chunk_id": i} for i in range(len(chunks))]
+                all_ids = []
+                all_embeddings = []
+                all_documents = []
+                all_metadatas = []
+                for model_idx, model in enumerate(self.embedding_models):
+                    model_name = getattr(model, 'name', None) or getattr(model, 'model_name', None) or str(model)
+                    # Make model_name short and unique for metadata
+                    if hasattr(model, 'model_name_or_path'):
+                        model_name = model.model_name_or_path.split('/')[-1]
+                    elif hasattr(model, 'model_name'):
+                        model_name = model.model_name.split('/')[-1]
+                    else:
+                        model_name = f"model{model_idx}"
+                    embeddings = model.encode(chunks)
+                    for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
+                        all_ids.append(f"{file.filename}_{model_name}_{i}")
+                        all_embeddings.append(emb.tolist())
+                        all_documents.append(chunk)
+                        all_metadatas.append({
+                            "filename": file.filename,
+                            "chunk_id": i,
+                            "model_name": model_name
+                        })
                 self.chroma_collection.add(
-                    ids=[f"{file.filename}_{i}" for i in range(len(chunks))],
-                    embeddings=embeddings.tolist(),
-                    documents=chunks,
-                    metadatas=metadatas
+                    ids=all_ids,
+                    embeddings=all_embeddings,
+                    documents=all_documents,
+                    metadatas=all_metadatas
                 )
                 ai_analysis = self._get_ai_analysis(result["extracted_text"], file.filename)
                 result["ai_analysis"] = ai_analysis
@@ -616,64 +640,70 @@ class FileAnalyzer:
         
         return chunks
 
-    def rag_query(self, question: str, filename: str, top_k: int = 3, relevance_threshold: float = 0.75) -> str:
-        """Hybrid RAG: Retrieve relevant chunks using multiple embedding models and context-fallback prompt, with relevance threshold filtering."""
-        # Hybrid: Use two embedding models for retrieval
-        q_emb_main = self.embedding_model.encode([question])[0]
-        if not hasattr(self, 'secondary_embedding_model'):
-            self.secondary_embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-        q_emb_secondary = self.secondary_embedding_model.encode([question])[0]
+    def rag_query(self, question: str, filename: str, top_k: int = 5, relevance_threshold: float = 0.75) -> str:
+        """Advanced RAG: Hybrid retrieval, context distillation, reranking, query expansion, and hallucination fallback."""
+        # --- Query Expansion ---
+        # Simple expansion: add synonyms/related terms (could use WordNet or static synonyms)
+        expansions = [question]
+        # Example: add a simple synonym expansion for demonstration
+        if "summary" in question.lower():
+            expansions.append(question.replace("summary", "overview"))
+        if "explain" in question.lower():
+            expansions.append(question.replace("explain", "describe"))
 
-        # Query ChromaDB for both embeddings
-        results_main = self.chroma_collection.query(
-            query_embeddings=[q_emb_main.tolist()],
-            n_results=top_k,
-            where={"filename": filename},
-            include=["distances", "documents"]
-        )
-        results_secondary = self.chroma_collection.query(
-            query_embeddings=[q_emb_secondary.tolist()],
-            n_results=top_k,
-            where={"filename": filename},
-            include=["distances", "documents"]
-        )
-        # Merge and deduplicate chunks (by text), keep max similarity for each chunk
+        # --- Hybrid Dense Retrieval (multiple models) + Keyword Search (if needed) ---
         chunk_scores = {}
-        for results in [results_main, results_secondary]:
-            docs = results.get('documents', [[]])[0]
-            dists = results.get('distances', [[]])[0]
-            for doc, dist in zip(docs, dists):
-                if doc:
-                    # ChromaDB returns L2 distance by default; convert to similarity if needed
-                    # For cosine, similarity = 1 - distance
-                    similarity = 1 - dist
-                    if doc not in chunk_scores or similarity > chunk_scores[doc]:
-                        chunk_scores[doc] = similarity
-        # Filter by threshold and sort by similarity
-        relevant_chunks = [doc for doc, sim in sorted(chunk_scores.items(), key=lambda x: -x[1]) if sim >= relevance_threshold]
-        # Use up to top 3 relevant chunks
-        context = "\n".join(relevant_chunks[:3])
+        for q in expansions:
+            for model in self.embedding_models:
+                q_emb = model.encode([q])[0]
+                results = self.chroma_collection.query(
+                    query_embeddings=[q_emb.tolist()],
+                    n_results=top_k,
+                    where={"filename": filename},
+                    include=["distances", "documents"]
+                )
+                docs = results.get('documents', [[]])[0]
+                dists = results.get('distances', [[]])[0]
+                for doc, dist in zip(docs, dists):
+                    if doc:
+                        similarity = 1 - dist
+                        # --- Advanced Filtering: diversity (reduce redundancy) ---
+                        is_diverse = all(doc not in c or abs(similarity - s) > 0.01 for c, s in chunk_scores.items())
+                        if is_diverse and (doc not in chunk_scores or similarity > chunk_scores[doc]):
+                            chunk_scores[doc] = similarity
 
-        # Improved prompt template with context fallback logic
+        # --- Reranking: sort by similarity (could use cross-encoder for better reranking) ---
+        reranked = sorted(chunk_scores.items(), key=lambda x: -x[1])
+        relevant_chunks = [doc for doc, sim in reranked if sim >= relevance_threshold]
+
+        # If no relevant chunk meets the threshold, do not include any document context
+        if not relevant_chunks:
+            prompt = (
+                "No relevant context was found in the provided documents. Answering based on general knowledge.\n\n"
+                f"User: {question}\n"
+                "Assistant:"
+            )
+            return self._get_ai_analysis(prompt, filename)
+
+        # --- Context Distillation: summarize if too many chunks ---
+        max_chunks = 5
+        if len(relevant_chunks) > max_chunks:
+            context_text = "\n".join(relevant_chunks[:max_chunks])
+            summary_prompt = f"Summarize the following context for answering a user question:\n\n{context_text}"
+            context = self._get_ai_analysis(summary_prompt, filename)
+        else:
+            context = "\n".join(relevant_chunks)
+
+        # --- Prompt Engineering & Fallback for Hallucination ---
         prompt = (
             "You are a friendly and knowledgeable AI assistant designed to help users with accurate, context-aware answers.\n\n"
             "When context is provided, use ONLY the information in the context. If context is not available or insufficient, rely on your general knowledge—but always prioritize context when available.\n\n"
             "Respond conversationally and helpfully.\n\n"
-            "{%- if context %}\n"
             "Context (from documents):\n"
             "--------------------------\n"
-            "{{ context }}\n"
-            "--------------------------\n"
-            "{%- endif %}\n\n"
-            "User: {{ question }}\n"
+            f"{context}\n"
+            "--------------------------\n\n"
+            f"User: {question}\n"
             "Assistant:"
         )
-        # Render the template (simple replacement, not full Jinja)
-        if context.strip():
-            rendered_prompt = prompt.replace("{%- if context %}\nContext (from documents):\n--------------------------\n{{ context }}\n--------------------------\n{%- endif %}\n\n", f"Context (from documents):\n--------------------------\n{context}\n--------------------------\n\n")
-            rendered_prompt = rendered_prompt.replace("{{ question }}", question)
-            rendered_prompt = rendered_prompt.replace("{{ context }}", context)
-        else:
-            # If no relevant context, just ask the question directly
-            rendered_prompt = f"User: {question}\nAssistant:"
-        return self._get_ai_analysis(rendered_prompt, filename)
+        return self._get_ai_analysis(prompt, filename)
