@@ -46,16 +46,17 @@ except ImportError:
 class FileAnalyzer:
     """Class to handle analysis of different file types"""
     
-    def __init__(self, openrouter_api_key: str, groq_api_key: str):
+    def __init__(self, openrouter_api_key: str, groq_api_key: str, embedding_model_names=None, use_all_models=False):
         self.groq_api_key = groq_api_key
         if not groq_api_key:
             raise ValueError("API key for Groq is required")
-        # Use multiple low-size, memory-efficient embedding models for hybrid retrieval
-        self.embedding_models = [
-            SentenceTransformer("intfloat/e5-small-v2", device="cpu"),
-            SentenceTransformer("BAAI/bge-small-en-v1.5", device="cpu"),
-            SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+        # Store model names, not loaded models
+        self.embedding_model_names = embedding_model_names or [
+            "intfloat/e5-small-v2",
+            "BAAI/bge-small-en-v1.5",
+            "all-MiniLM-L6-v2"
         ]
+        self.use_all_models = use_all_models
         self.chroma_client = chromadb.Client()
         self.chroma_collection = self.chroma_client.get_or_create_collection("file_chunks")
     
@@ -87,29 +88,28 @@ class FileAnalyzer:
             
             # RAG: Add vector DB step for text-based files
             if "extracted_text" in result and result["extracted_text"]:
+                from sentence_transformers import SentenceTransformer
                 chunks = self._chunk_text(result["extracted_text"])
                 all_ids = []
                 all_embeddings = []
                 all_documents = []
                 all_metadatas = []
-                for model_idx, model in enumerate(self.embedding_models):
-                    model_name = getattr(model, 'name', None) or getattr(model, 'model_name', None) or str(model)
-                    # Make model_name short and unique for metadata
-                    if hasattr(model, 'model_name_or_path'):
-                        model_name = model.model_name_or_path.split('/')[-1]
-                    elif hasattr(model, 'model_name'):
-                        model_name = model.model_name.split('/')[-1]
-                    else:
-                        model_name = f"model{model_idx}"
+                model_names_to_use = self.embedding_model_names if self.use_all_models else [self.embedding_model_names[0]]
+                for model_idx, model_name in enumerate(model_names_to_use):
+                    model_short = model_name.split("/")[-1]
+                    model = SentenceTransformer(model_name, device="cpu")
                     embeddings = model.encode(chunks)
+                    del model
+                    import gc
+                    gc.collect()
                     for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
-                        all_ids.append(f"{file.filename}_{model_name}_{i}")
+                        all_ids.append(f"{file.filename}_{model_short}_{i}")
                         all_embeddings.append(emb.tolist())
                         all_documents.append(chunk)
                         all_metadatas.append({
                             "filename": file.filename,
                             "chunk_id": i,
-                            "model_name": model_name
+                            "model_name": model_short
                         })
                 self.chroma_collection.add(
                     ids=all_ids,
@@ -652,10 +652,16 @@ class FileAnalyzer:
             expansions.append(question.replace("explain", "describe"))
 
         # --- Hybrid Dense Retrieval (multiple models) + Keyword Search (if needed) ---
+        from sentence_transformers import SentenceTransformer
         chunk_scores = {}
+        model_names_to_use = self.embedding_model_names if self.use_all_models else [self.embedding_model_names[0]]
         for q in expansions:
-            for model in self.embedding_models:
+            for model_name in model_names_to_use:
+                model = SentenceTransformer(model_name, device="cpu")
                 q_emb = model.encode([q])[0]
+                del model
+                import gc
+                gc.collect()
                 results = self.chroma_collection.query(
                     query_embeddings=[q_emb.tolist()],
                     n_results=top_k,
@@ -667,7 +673,6 @@ class FileAnalyzer:
                 for doc, dist in zip(docs, dists):
                     if doc:
                         similarity = 1 - dist
-                        # --- Advanced Filtering: diversity (reduce redundancy) ---
                         is_diverse = all(doc not in c or abs(similarity - s) > 0.01 for c, s in chunk_scores.items())
                         if is_diverse and (doc not in chunk_scores or similarity > chunk_scores[doc]):
                             chunk_scores[doc] = similarity
