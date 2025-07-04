@@ -1,3 +1,5 @@
+# Ignore local Hugging Face models directory
+hf_models/
 # Environment variables
 .env
 .env.local

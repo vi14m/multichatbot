@@ -51,10 +51,12 @@ class FileAnalyzer:
         if not groq_api_key:
             raise ValueError("API key for Groq is required")
         # Store model names, not loaded models
+        # Use local model paths if not provided
+        # Use relative path for Docker and local compatibility
         self.embedding_model_names = embedding_model_names or [
-            "intfloat/e5-small-v2",
-            "BAAI/bge-small-en-v1.5",
-            "all-MiniLM-L6-v2"
+            os.path.join(os.path.dirname(__file__), "..", "hf_models", "intfloat_e5-small-v2"),
+            os.path.join(os.path.dirname(__file__), "..", "hf_models", "BAAI_bge-small-en-v1.5"),
+            os.path.join(os.path.dirname(__file__), "..", "hf_models", "all-MiniLM-L6-v2")
         ]
         self.use_all_models = use_all_models
         self.chroma_client = chromadb.Client()
