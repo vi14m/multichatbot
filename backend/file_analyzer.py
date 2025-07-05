@@ -54,9 +54,9 @@ class FileAnalyzer:
         # Use local model paths if not provided
         # Use relative path for Docker and local compatibility
         self.embedding_model_names = embedding_model_names or [
-            os.path.join(os.path.dirname(__file__), "..", "hf_models", "intfloat_e5-small-v2"),
-            os.path.join(os.path.dirname(__file__), "..", "hf_models", "BAAI_bge-small-en-v1.5"),
-            os.path.join(os.path.dirname(__file__), "..", "hf_models", "all-MiniLM-L6-v2")
+            "intfloat/e5-small-v2",
+            "BAAI/bge-small-en-v1.5",
+            "sentence-transformers/all-MiniLM-L6-v2"
         ]
         self.use_all_models = use_all_models
         self.chroma_client = chromadb.Client()
@@ -90,7 +90,6 @@ class FileAnalyzer:
             
             # RAG: Add vector DB step for text-based files
             if "extracted_text" in result and result["extracted_text"]:
-                from sentence_transformers import SentenceTransformer
                 chunks = self._chunk_text(result["extracted_text"])
                 all_ids = []
                 all_embeddings = []
@@ -99,14 +98,10 @@ class FileAnalyzer:
                 model_names_to_use = self.embedding_model_names if self.use_all_models else [self.embedding_model_names[0]]
                 for model_idx, model_name in enumerate(model_names_to_use):
                     model_short = model_name.split("/")[-1]
-                    model = SentenceTransformer(model_name, device="cpu")
-                    embeddings = model.encode(chunks)
-                    del model
-                    import gc
-                    gc.collect()
+                    embeddings = self._get_hf_embeddings(model_name, chunks)
                     for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
                         all_ids.append(f"{file.filename}_{model_short}_{i}")
-                        all_embeddings.append(emb.tolist())
+                        all_embeddings.append(emb)
                         all_documents.append(chunk)
                         all_metadatas.append({
                             "filename": file.filename,
@@ -643,29 +638,21 @@ class FileAnalyzer:
         return chunks
 
     def rag_query(self, question: str, filename: str, top_k: int = 5, relevance_threshold: float = 0.75) -> str:
-        """Advanced RAG: Hybrid retrieval, context distillation, reranking, query expansion, and hallucination fallback."""
+        """Advanced RAG: Hybrid retrieval, context distillation, reranking, query expansion, and hallucination fallback using Hugging Face Inference API."""
         # --- Query Expansion ---
-        # Simple expansion: add synonyms/related terms (could use WordNet or static synonyms)
         expansions = [question]
-        # Example: add a simple synonym expansion for demonstration
         if "summary" in question.lower():
             expansions.append(question.replace("summary", "overview"))
         if "explain" in question.lower():
             expansions.append(question.replace("explain", "describe"))
 
-        # --- Hybrid Dense Retrieval (multiple models) + Keyword Search (if needed) ---
-        from sentence_transformers import SentenceTransformer
         chunk_scores = {}
         model_names_to_use = self.embedding_model_names if self.use_all_models else [self.embedding_model_names[0]]
         for q in expansions:
             for model_name in model_names_to_use:
-                model = SentenceTransformer(model_name, device="cpu")
-                q_emb = model.encode([q])[0]
-                del model
-                import gc
-                gc.collect()
+                q_emb = self._get_hf_embeddings(model_name, [q])[0]
                 results = self.chroma_collection.query(
-                    query_embeddings=[q_emb.tolist()],
+                    query_embeddings=[q_emb],
                     n_results=top_k,
                     where={"filename": filename},
                     include=["distances", "documents"]
@@ -679,11 +666,9 @@ class FileAnalyzer:
                         if is_diverse and (doc not in chunk_scores or similarity > chunk_scores[doc]):
                             chunk_scores[doc] = similarity
 
-        # --- Reranking: sort by similarity (could use cross-encoder for better reranking) ---
         reranked = sorted(chunk_scores.items(), key=lambda x: -x[1])
         relevant_chunks = [doc for doc, sim in reranked if sim >= relevance_threshold]
 
-        # If no relevant chunk meets the threshold, do not include any document context
         if not relevant_chunks:
             prompt = (
                 "No relevant context was found in the provided documents. Answering based on general knowledge.\n\n"
@@ -692,7 +677,6 @@ class FileAnalyzer:
             )
             return self._get_ai_analysis(prompt, filename)
 
-        # --- Context Distillation: summarize if too many chunks ---
         max_chunks = 5
         if len(relevant_chunks) > max_chunks:
             context_text = "\n".join(relevant_chunks[:max_chunks])
@@ -701,7 +685,6 @@ class FileAnalyzer:
         else:
             context = "\n".join(relevant_chunks)
 
-        # --- Prompt Engineering & Fallback for Hallucination ---
         prompt = (
             "You are a friendly and knowledgeable AI assistant designed to help users with accurate, context-aware answers.\n\n"
             "When context is provided, use ONLY the information in the context. If context is not available or insufficient, rely on your general knowledge—but always prioritize context when available.\n\n"
@@ -714,3 +697,34 @@ class FileAnalyzer:
             "Assistant:"
         )
         return self._get_ai_analysis(prompt, filename)
+
+    def _get_hf_embeddings(self, model_name: str, sentences: list) -> list:
+        """Get embeddings from Hugging Face Inference API for a list of sentences."""
+        import os
+        import requests
+        HF_TOKEN = os.environ.get('HF_TOKEN')
+        if not HF_TOKEN:
+            raise RuntimeError("HF_TOKEN environment variable is required for Hugging Face Inference API.")
+        headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+        # Map model_name to correct API endpoint
+        if model_name == "sentence-transformers/all-MiniLM-L6-v2":
+            api_url = "https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction"
+        elif model_name == "BAAI/bge-small-en-v1.5":
+            api_url = "https://router.huggingface.co/hf-inference/models/BAAI/bge-small-en-v1.5/pipeline/feature-extraction"
+        elif model_name == "intfloat/e5-small-v2":
+            api_url = "https://router.huggingface.co/hf-inference/models/intfloat/e5-small-v2/pipeline/feature-extraction"
+        else:
+            raise ValueError(f"Unknown model name for HF API: {model_name}")
+        # The API expects a single string or a list of strings
+        payload = {"inputs": sentences if len(sentences) > 1 else sentences[0]}
+        response = requests.post(api_url, headers=headers, json=payload)
+        if response.status_code != 200:
+            raise RuntimeError(f"HF API error: {response.text}")
+        result = response.json()
+        # The result is a list of embeddings (or a single embedding)
+        if isinstance(result, list) and isinstance(result[0], list):
+            return result
+        elif isinstance(result, list):
+            return [result]
+        else:
+            raise RuntimeError(f"Unexpected HF API response: {result}")
