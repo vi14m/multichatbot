@@ -11,7 +11,6 @@ import csv
 import markdown
 from collections import Counter
 from statistics import mean, median, stdev
-from sentence_transformers import SentenceTransformer
 import chromadb
 
 # For image analysis
