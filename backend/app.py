@@ -46,7 +46,7 @@ if not GROQ_API_KEY or not OPENROUTER_API_KEY:
     raise ValueError("Missing API keys. Please set GROQ_API_KEY and OPENROUTER_API_KEY in .env file")
 
 # Initialize FileAnalyzer
-file_analyzer = FileAnalyzer(OPENROUTER_API_KEY, GROQ_API_KEY)
+file_analyzer = FileAnalyzer(GROQ_API_KEY)
 
 # Model mapping
 MODEL_MAPPING = {
