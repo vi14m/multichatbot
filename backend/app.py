@@ -16,8 +16,9 @@ import time
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Import the FileAnalyzer
+# Import the FileAnalyzer and tools
 from file_analyzer import FileAnalyzer
+from tools import tool_registry
 
 # Load environment variables
 load_dotenv()
@@ -41,12 +42,16 @@ app.add_middleware(
 # API Keys
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
 if not GROQ_API_KEY or not OPENROUTER_API_KEY:
     raise ValueError("Missing API keys. Please set GROQ_API_KEY and OPENROUTER_API_KEY in .env file")
 
+if not TAVILY_API_KEY:
+    raise ValueError("Missing TAVILY_API_KEY. Please set TAVILY_API_KEY in .env file")
+
 # Initialize FileAnalyzer
-file_analyzer = FileAnalyzer(GROQ_API_KEY)
+file_analyzer = FileAnalyzer(GROQ_API_KEY, tavily_api_key=TAVILY_API_KEY)
 
 # Model mapping
 MODEL_MAPPING = {
@@ -69,6 +74,8 @@ class ChatRequest(BaseModel):
     message: str = Field(..., description="User message")
     conversation_history: Optional[List[Dict[str, str]]] = Field(default=[], description="Previous conversation history")
     file_context: Optional[Dict[str, Any]] = Field(default=None, description="Context from previously analyzed file")
+    use_tools: Optional[bool] = Field(default=True, description="Whether to use function calling tools")
+    selected_tools: Optional[List[str]] = Field(default=None, description="List of selected tools to use")
 
 class TTSRequest(BaseModel):
     text: str = Field(..., description="Text to convert to speech")
@@ -89,6 +96,8 @@ class ChatResponse(BaseModel):
     response: str
     processing_time: float
     token_count: Optional[Dict[str, int]] = None
+    tool_calls: Optional[List[Dict[str, Any]]] = None
+    tool_results: Optional[List[Dict[str, Any]]] = None
 
 # Add to the existing Pydantic models section
 class FileChatRequest(BaseModel):
@@ -111,16 +120,22 @@ MODEL_MAPPING.update({
 })
 
 # Helper functions
-def get_groq_response(prompt, model, conversation_history=None):
-    """Get response from Groq API"""
+def get_groq_response(prompt, model, conversation_history=None, use_tools=True, max_history_messages=10, selected_tools=None, mode: str = "chat"):
+    """Get response from Groq API with optional function calling"""
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
     
-    messages = []
+    # System prompt to encourage tool use
+    system_prompt = "You are a helpful assistant. When the user asks for information that is likely to be recent or that you don't know, use the 'web_search' tool. When asked to execute code, use the 'execute_code_online' tool."
+    
+    messages = [{"role": "system", "content": system_prompt}]
+    
     if conversation_history:
-        for msg in conversation_history:
+        # Limit conversation history to the last N messages
+        limited_history = conversation_history[-max_history_messages:]
+        for msg in limited_history:
             messages.append({"role": msg["role"], "content": msg["content"]})
     
     messages.append({"role": "user", "content": prompt})
@@ -131,6 +146,13 @@ def get_groq_response(prompt, model, conversation_history=None):
         "temperature": 0.7,
         "max_tokens": 2048,
     }
+    
+    # Add function calling if enabled
+    if use_tools:
+        data["tools"] = tool_registry.get_tool_descriptions(mode=mode, selected_tools=selected_tools)
+
+
+        data["tool_choice"] = "auto"
     
     response = requests.post(
         "https://api.groq.com/openai/v1/chat/completions",
@@ -142,17 +164,118 @@ def get_groq_response(prompt, model, conversation_history=None):
         raise HTTPException(status_code=response.status_code, detail=response.text)
     
     result = response.json()
+    response_message = result["choices"][0]["message"]
+    
+    # Process tool calls if present
+    tool_calls = response_message.get("tool_calls", [])
+    tool_results = []
+    
+    if tool_calls:
+        for tool_call in tool_calls:
+            function_call = tool_call.get("function", {})
+            function_name = function_call.get("name")
+            function_args = json.loads(function_call.get("arguments", "{}"))
+            
+            # Execute the tool
+            try:
+                tool_result = tool_registry.execute_tool(function_name, function_args)
+                tool_results.append({
+                    "tool_call_id": tool_call.get("id"),
+                    "name": function_name,
+                    "result": tool_result
+                })
+            except Exception as e:
+                tool_results.append({
+                    "tool_call_id": tool_call.get("id"),
+                    "name": function_name,
+                    "error": str(e)
+                })
+        
+        # If we have tool results, make a second call to process them
+        if tool_results:
+            # Add tool results to messages
+            for tool_result in tool_results:
+                messages.append({
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": tool_result["tool_call_id"],
+                        "type": "function",
+                        "function": {
+                            "name": tool_result["name"],
+                            "arguments": function_call.get("arguments", "{}")
+                        }
+                    }]
+                })
+                
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_result["tool_call_id"],
+                    "content": str(tool_result.get("result", tool_result.get("error", "")))
+                })
+            
+            # Make second call to process tool results
+            data["messages"] = messages
+            response = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers=headers,
+                json=data
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+            
+            result = response.json()
+            response_message = result["choices"][0]["message"]
+
+            # If the LLM doesn't provide a content response after tool execution,
+            # generate a default response based on tool results.
+            if not response_message.get("content") and tool_results:
+                response_content = "I have executed the requested tools. Here are the results:\n\n"
+                for tr in tool_results:
+                    if tr['name'] == 'web_search' and tr.get('result'):
+                        # Special formatting for web_search results
+                        response_content += "Here are the web search results:\n\n"
+                        results = tr['result'].strip().split('\n\n')
+                        for res in results:
+                            lines = res.split('\n')
+                            title = "N/A"
+                            content = "N/A"
+                            url = "N/A"
+                            for line in lines:
+                                if line.startswith("TITLE:"):
+                                    title = line.replace("TITLE:", "").strip()
+                                elif line.startswith("CONTENT:"):
+                                    content = line.replace("CONTENT:", "").strip()
+                                elif line.startswith("URL:"):
+                                    url = line.replace("URL:", "").strip()
+                            response_content += f"- **Title:** {title}\n  **Content:** {content}\n  **URL:** {url}\n\n"
+                    else:
+                        response_content += f"- **Tool:** `{tr['name']}`\n"
+                        if tr.get('result'):
+                            # Attempt to parse result as JSON for pretty printing
+                            try:
+                                parsed_result = json.loads(tr['result'])
+                                response_content += f"  **Result:**\n```json\n{json.dumps(parsed_result, indent=2)}\n```\n\n"
+                            except json.JSONDecodeError:
+                                response_content += f"  **Result:**\n```\n{tr['result']}\n```\n\n"
+                        elif tr.get('error'):
+                            response_content += f"  **Error:** `{tr['error']}`\n\n"
+                response_message["content"] = response_content.strip()
+
     return {
-        "response": result["choices"][0]["message"]["content"],
+        "response": response_message.get("content", ""),
         "token_count": {
             "prompt_tokens": result["usage"]["prompt_tokens"],
             "completion_tokens": result["usage"]["completion_tokens"],
             "total_tokens": result["usage"]["total_tokens"]
-        }
+        },
+        "tool_calls": tool_calls,
+        "tool_results": tool_results
     }
 
-def get_openrouter_response(prompt, model, conversation_history=None):
-    """Get response from OpenRouter API"""
+def get_openrouter_response(prompt, model, conversation_history=None, use_tools=True, max_history_messages=10, selected_tools=None, mode: str = "chat"):
+    """Get response from OpenRouter API with optional function calling"""
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
@@ -162,7 +285,9 @@ def get_openrouter_response(prompt, model, conversation_history=None):
     
     messages = []
     if conversation_history:
-        for msg in conversation_history:
+        # Limit conversation history to the last N messages
+        limited_history = conversation_history[-max_history_messages:]
+        for msg in limited_history:
             messages.append({"role": msg["role"], "content": msg["content"]})
     
     messages.append({"role": "user", "content": prompt})
@@ -174,6 +299,11 @@ def get_openrouter_response(prompt, model, conversation_history=None):
         "max_tokens": 2048,
     }
     
+    # Add function calling if enabled
+    if use_tools:
+        data["tools"] = tool_registry.get_tool_descriptions(mode=mode, selected_tools=selected_tools)
+        data["tool_choice"] = "auto"
+    
     response = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
         headers=headers,
@@ -184,13 +314,97 @@ def get_openrouter_response(prompt, model, conversation_history=None):
         raise HTTPException(status_code=response.status_code, detail=response.text)
     
     result = response.json()
+    response_message = result["choices"][0]["message"]
+    
+    # Process tool calls if present
+    tool_calls = response_message.get("tool_calls", [])
+    tool_results = []
+    
+    if tool_calls:
+        for tool_call in tool_calls:
+            function_call = tool_call.get("function", {})
+            function_name = function_call.get("name")
+            function_args = json.loads(function_call.get("arguments", "{}"))
+            
+            # Execute the tool
+            try:
+                tool_result = tool_registry.execute_tool(function_name, function_args)
+                tool_results.append({
+                    "tool_call_id": tool_call.get("id"),
+                    "name": function_name,
+                    "result": tool_result
+                })
+            except Exception as e:
+                tool_results.append({
+                    "tool_call_id": tool_call.get("id"),
+                    "name": function_name,
+                    "error": str(e)
+                })
+        
+        # If we have tool results, make a second call to process them
+        if tool_results:
+            # Add tool results to messages
+            for tool_result in tool_results:
+                messages.append({
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": tool_result["tool_call_id"],
+                        "type": "function",
+                        "function": {
+                            "name": tool_result["name"],
+                            "arguments": function_call.get("arguments", "{}")
+                        }
+                    }]
+                })
+                
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_result["tool_call_id"],
+                    "content": str(tool_result.get("result", tool_result.get("error", "")))
+                })
+            
+            # Make second call to process tool results
+            data["messages"] = messages
+            response = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json=data
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+            
+            result = response.json()
+            response_message = result["choices"][0]["message"]
+
+            # If the LLM doesn't provide a content response after tool execution,
+            # generate a default response based on tool results.
+            if not response_message.get("content") and tool_results:
+                response_content = "I have executed the requested tools. Here are the results:\n\n"
+                for tr in tool_results:
+                    response_content += f"- **Tool:** `{tr['name']}`\n"
+                    if tr.get('result'):
+                        # Attempt to parse result as JSON for pretty printing
+                        try:
+                            import json
+                            parsed_result = json.loads(tr['result'])
+                            response_content += f"  **Result:**\n```json\n{json.dumps(parsed_result, indent=2)}\n```\n\n"
+                        except json.JSONDecodeError:
+                            response_content += f"  **Result:**\n```\n{tr['result']}\n```\n\n"
+                    elif tr.get('error'):
+                        response_content += f"  **Error:** `{tr['error']}`\n\n"
+                response_message["content"] = response_content.strip()
+
     return {
-        "response": result["choices"][0]["message"]["content"],
+        "response": response_message.get("content", ""),
         "token_count": {
             "prompt_tokens": result["usage"]["prompt_tokens"],
             "completion_tokens": result["usage"]["completion_tokens"],
             "total_tokens": result["usage"]["total_tokens"]
-        }
+        },
+        "tool_calls": tool_calls,
+        "tool_results": tool_results
     }
 
 def get_openrouter_tts(text, voice="default"):
@@ -290,11 +504,9 @@ async def root():
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     start_time = time.time()
-    
     mode = request.mode.lower()
     if mode not in MODEL_MAPPING:
         raise HTTPException(status_code=400, detail=f"Invalid mode: {mode}")
-    
     model_info = MODEL_MAPPING[mode]
     provider = model_info["provider"]
     model = model_info["model"]
@@ -341,17 +553,20 @@ Please provide a helpful response based on the document content."""
         prompt = f"You are a content moderation assistant. Please analyze the following content for policy violations: {prompt}"
     
     try:
+        # Only /chat endpoint uses function calling/tools
         if provider == "groq":
-            result = get_groq_response(prompt, model, request.conversation_history)
-        else:  # openrouter
-            result = get_openrouter_response(prompt, model, request.conversation_history)
+            result = get_groq_response(prompt, model, request.conversation_history, use_tools=True, max_history_messages=10, selected_tools=request.selected_tools, mode=mode)
+        else:
+            result = get_openrouter_response(prompt, model, request.conversation_history, use_tools=True, max_history_messages=10, selected_tools=request.selected_tools, mode=mode)
         
         processing_time = time.time() - start_time
         
         return {
             "response": result["response"],
             "processing_time": processing_time,
-            "token_count": result["token_count"]
+            "token_count": result["token_count"],
+            "tool_calls": result.get("tool_calls"),
+            "tool_results": result.get("tool_results")
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -464,9 +679,9 @@ User's question: {request.message}"""
         
         # Get response from the appropriate provider
         if model_info["provider"] == "groq":
-            result = get_groq_response(prompt, model_info["model"], request.conversation_history)
+            result = get_groq_response(prompt, model_info["model"], request.conversation_history, mode=request.mode)
         else:
-            result = get_openrouter_response(prompt, model_info["model"], request.conversation_history)
+            result = get_openrouter_response(prompt, model_info["model"], request.conversation_history, mode=request.mode)
         
         processing_time = time.time() - start_time
         

@@ -140,7 +140,6 @@ multichatbot/
 
 ### Supported File Types
 
-- **Images**: JPG, JPEG, PNG, GIF, BMP
 - **Documents**: PDF
 - **Text Files**: TXT, CSV, JSON, MD
 

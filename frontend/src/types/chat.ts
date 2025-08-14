@@ -24,6 +24,8 @@ export interface Message {
   mode?: ChatMode;
   audioUrl?: string; // For text-to-speech messages
   fileAnalysis?: FileAnalysis; // For file analysis results
+  toolCalls?: ToolCall[]; // For function calling
+  toolResults?: ToolResult[]; // Results of function calls
 }
 
 // Chat API request
@@ -36,6 +38,25 @@ export interface ChatRequest {
     file_type: string;
     extracted_text: string;
   } | null;
+  use_tools?: boolean; // Whether to enable function calling
+  selected_tools?: string[]; // List of selected tools to use
+}
+
+// Tool call structure
+export interface ToolCall {
+  id: string;
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+// Tool result structure
+export interface ToolResult {
+  tool_call_id: string;
+  name: string;
+  result?: string;
+  error?: string;
 }
 
 // Chat API response
@@ -47,6 +68,8 @@ export interface ChatResponse {
     completion_tokens: number;
     total_tokens: number;
   };
+  tool_calls?: ToolCall[];
+  tool_results?: ToolResult[];
 }
 
 // Text-to-Speech API request
