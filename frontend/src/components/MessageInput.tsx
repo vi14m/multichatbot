@@ -1,4 +1,4 @@
-import { useState, useRef, FormEvent, ChangeEvent } from 'react';
+import { useState, useRef, FormEvent, ChangeEvent, Dispatch, SetStateAction } from 'react';
 import { 
   PaperAirplaneIcon, 
   XMarkIcon, 
@@ -17,8 +17,8 @@ interface MessageInputProps {
   onFileUpload?: (file: File) => void;
   mode: ChatMode;
   isLoading: boolean;
-  useToolsEnabled: boolean;
-  setUseToolsEnabled: (enabled: boolean) => void;
+  useToolsEnabled: boolean; // Added
+  setUseToolsEnabled: Dispatch<SetStateAction<boolean>>; // Added
   selectedTools: string[];
   setSelectedTools: (tools: string[]) => void;
 }
@@ -148,7 +148,7 @@ const MessageInput = ({ onSendMessage, onFileUpload, mode, isLoading, useToolsEn
             type="button"
             onClick={() => {
               setShowToolDialog(true);
-              setUseToolsEnabled(true); // Automatically enable tools when dialog is opened
+              // Automatically enable tools when dialog is opened
             }}
             className="px-3 py-1 rounded-full text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-dark-600 dark:text-gray-300 dark:hover:bg-dark-500 transition-colors"
             title="Select specific tools to use"

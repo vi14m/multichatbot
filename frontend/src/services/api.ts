@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { ChatRequest, ChatResponse, TTSRequest, TranscriptionResponse, ModelMapping, FileAnalysis, ToolCall, ToolResult } from '@/types/chat';
+import { ChatRequest, ChatResponse, TTSRequest, TranscriptionResponse, ModelMapping, FileAnalysis } from '@/types/chat';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
