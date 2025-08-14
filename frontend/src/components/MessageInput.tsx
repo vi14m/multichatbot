@@ -1,4 +1,4 @@
-import { useState, useRef, FormEvent, ChangeEvent, Dispatch, SetStateAction } from 'react';
+import { useState, useRef, FormEvent, ChangeEvent } from 'react';
 import { 
   PaperAirplaneIcon, 
   XMarkIcon, 
@@ -17,13 +17,11 @@ interface MessageInputProps {
   onFileUpload?: (file: File) => void;
   mode: ChatMode;
   isLoading: boolean;
-  useToolsEnabled: boolean; // Added
-  setUseToolsEnabled: Dispatch<SetStateAction<boolean>>; // Added
   selectedTools: string[];
   setSelectedTools: (tools: string[]) => void;
 }
 
-const MessageInput = ({ onSendMessage, onFileUpload, mode, isLoading, useToolsEnabled, setUseToolsEnabled, selectedTools, setSelectedTools }: MessageInputProps) => {
+const MessageInput = ({ onSendMessage, onFileUpload, mode, isLoading, selectedTools, setSelectedTools }: MessageInputProps) => {
   const [message, setMessage] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);

@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { toast } from 'react-toastify';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
-import { ChatMode, Message, ChatRequest, ToolCall, ToolResult } from '@/types/chat';
+import { ChatMode, Message, ChatRequest } from '@/types/chat';
 import { sendChatMessage, transcribeAudio, analyzeFile } from '@/services/api';
 
 interface ChatInterfaceProps {
@@ -13,7 +13,6 @@ interface ChatInterfaceProps {
 const ChatInterface = forwardRef<HTMLDivElement, ChatInterfaceProps>(({ mode }, ref) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [useToolsEnabled, setUseToolsEnabled] = useState(false); // New state for tool usage
   const [selectedTools, setSelectedTools] = useState<string[]>([]); // New state for selected tools
 
   // Reset messages when mode changes
@@ -63,12 +62,11 @@ const ChatInterface = forwardRef<HTMLDivElement, ChatInterfaceProps>(({ mode }, 
       
       // Create the request
       const request: ChatRequest = {
-        mode,
-        message: content,
-        conversation_history: conversationHistory,
-        file_context: fileContext,
-        use_tools: useToolsEnabled, // Use the state variable for tool usage
-        selected_tools: selectedTools // Pass selected tools to the backend
+  mode,
+  message: content,
+  conversation_history: conversationHistory,
+  file_context: fileContext,
+  selected_tools: selectedTools // Pass selected tools to the backend
       };
       
       // Send the request to the API
@@ -209,11 +207,9 @@ const ChatInterface = forwardRef<HTMLDivElement, ChatInterfaceProps>(({ mode }, 
           onFileUpload={handleFileUpload}
           mode={mode} 
           isLoading={isLoading}
-          useToolsEnabled={useToolsEnabled}
-        setUseToolsEnabled={setUseToolsEnabled}
-        selectedTools={selectedTools}
-        setSelectedTools={setSelectedTools}
-      />
+          selectedTools={selectedTools}
+          setSelectedTools={setSelectedTools}
+        />
       </div>
     </div>
   );
