@@ -178,6 +178,65 @@ const Message = ({ message }: MessageProps) => {
                 {message.content}
               </ReactMarkdown>
               
+              {/* Consistency Check Information - Display when available */}
+              {message.consistencyInfo && (
+                <div className="consistency-info mt-4 pt-4 border-t border-gray-200 dark:border-dark-600">
+                  <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    Consistency Check
+                  </h4>
+                  <div className="bg-green-50 dark:bg-green-900/10 rounded-md p-3 border border-green-100 dark:border-green-800/30 mb-3">
+                    <div className="text-sm text-gray-700 dark:text-gray-300">
+                      <div className="font-medium mb-1">{message.consistencyInfo.method === 'comparison' ? 'Response Comparison' : 'Self-Reflection'}</div>
+                      <div className="text-gray-600 dark:text-gray-400">
+                        {message.consistencyInfo.method === 'comparison' 
+                          ? 'Two responses were generated and compared for consistency.' 
+                          : 'The response was analyzed through self-reflection.'}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {message.consistencyInfo.method === 'comparison' && message.consistencyInfo.similarity_score && (
+                    <div className="mb-3">
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Similarity Score</div>
+                      <div className="w-full bg-gray-200 dark:bg-dark-600 rounded-full h-2.5">
+                        <div 
+                          className={`h-2.5 rounded-full ${message.consistencyInfo.similarity_score > 0.8 ? 'bg-green-500' : message.consistencyInfo.similarity_score > 0.5 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                          style={{ width: `${Math.round(message.consistencyInfo.similarity_score * 100)}%` }}
+                        ></div>
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 text-right">
+                        {Math.round(message.consistencyInfo.similarity_score * 100)}% similar
+                      </div>
+                    </div>
+                  )}
+                  
+                  {message.consistencyInfo.differences && message.consistencyInfo.differences.length > 0 && (
+                    <div className="mb-3">
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Key Differences</div>
+                      <ul className="list-disc list-inside text-sm text-gray-600 dark:text-gray-400">
+                        {message.consistencyInfo.differences.map((diff, index) => (
+                          <li key={index}>{diff}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  {message.consistencyInfo.reflection && (
+                    <div className="mb-3">
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Reflection</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400 bg-white dark:bg-dark-700 p-3 rounded-md border border-gray-200 dark:border-dark-600">
+                        <ReactMarkdown>
+                          {message.consistencyInfo.reflection}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              
               {/* Tool Calls Section - Only display if there's no main content */}
               {!message.content && message.toolCalls && message.toolCalls.length > 0 && (
                 <div className="tool-calls mt-4 pt-4 border-t border-gray-200 dark:border-dark-600">

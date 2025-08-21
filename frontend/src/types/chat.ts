@@ -15,6 +15,15 @@ export type ChatMode =
 // Chat message role
 export type MessageRole = 'user' | 'assistant' | 'system';
 
+// Consistency check information
+export interface ConsistencyInfo {
+  method: 'comparison' | 'self_reflection';
+  similarity_score?: number;
+  differences?: string[];
+  reflection?: string;
+  is_consistent: boolean;
+}
+
 // Chat message structure
 export interface Message {
   id: string;
@@ -26,6 +35,7 @@ export interface Message {
   fileAnalysis?: FileAnalysis; // For file analysis results
   toolCalls?: ToolCall[]; // For function calling
   toolResults?: ToolResult[]; // Results of function calls
+  consistencyInfo?: ConsistencyInfo; // Information about response consistency
 }
 
 // Chat API request
@@ -38,8 +48,10 @@ export interface ChatRequest {
     file_type: string;
     extracted_text: string;
   } | null;
+
   use_tools?: boolean; // Whether to enable function calling
   selected_tools?: string[]; // List of selected tools to use
+  consistency_check?: boolean; // Whether to perform consistency check on responses
 }
 
 // Tool call structure
@@ -61,6 +73,9 @@ export interface ToolResult {
 
 // Chat API response
 export interface ChatResponse {
+  message: Message;
+  conversation_id: string;
+  consistency_info?: ConsistencyInfo;
   response: string;
   processing_time: number;
   token_count?: {

@@ -19,9 +19,20 @@ interface MessageInputProps {
   isLoading: boolean;
   selectedTools: string[];
   setSelectedTools: (tools: string[]) => void;
+  useConsistencyCheck?: boolean;
+  setUseConsistencyCheck?: (value: boolean) => void;
 }
 
-const MessageInput = ({ onSendMessage, onFileUpload, mode, isLoading, selectedTools, setSelectedTools }: MessageInputProps) => {
+const MessageInput = ({ 
+  onSendMessage, 
+  onFileUpload, 
+  mode, 
+  isLoading, 
+  selectedTools, 
+  setSelectedTools,
+  useConsistencyCheck = false,
+  setUseConsistencyCheck
+}: MessageInputProps) => {
   const [message, setMessage] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -33,6 +44,13 @@ const MessageInput = ({ onSendMessage, onFileUpload, mode, isLoading, selectedTo
     { id: 'run_python_code', name: 'Code Runner' },
     // Add more tools as they are defined in the backend
   ];
+  
+  // Toggle for consistency check
+  const handleConsistencyCheckToggle = () => {
+    if (setUseConsistencyCheck) {
+      setUseConsistencyCheck(!useConsistencyCheck);
+    }
+  };
 
   const handleToolToggle = (toolId: string) => {
     const newSelectedTools = selectedTools.includes(toolId)
@@ -153,6 +171,18 @@ const MessageInput = ({ onSendMessage, onFileUpload, mode, isLoading, selectedTo
           >
             Select Tools
           </button>
+          
+          {/* Consistency check toggle */}
+          {setUseConsistencyCheck && (
+            <button
+              type="button"
+              onClick={handleConsistencyCheckToggle}
+              className={`px-3 py-1 rounded-full text-sm font-medium ${useConsistencyCheck ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300' : 'bg-gray-200 text-gray-700 dark:bg-dark-600 dark:text-gray-300'} hover:bg-gray-300 dark:hover:bg-dark-500 transition-colors`}
+              title="Toggle consistency check"
+            >
+              {useConsistencyCheck ? 'Consistency: On' : 'Consistency: Off'}
+            </button>
+          )}
         </div>
 
         {/* Show selected file as a chip above the input only in analyze mode */}

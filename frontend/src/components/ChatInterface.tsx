@@ -13,7 +13,8 @@ interface ChatInterfaceProps {
 const ChatInterface = forwardRef<HTMLDivElement, ChatInterfaceProps>(({ mode }, ref) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedTools, setSelectedTools] = useState<string[]>([]); // New state for selected tools
+  const [selectedTools, setSelectedTools] = useState<string[]>([]); // State for selected tools
+  const [useConsistencyCheck, setUseConsistencyCheck] = useState(false); // State for consistency check toggle
 
   // Reset messages when mode changes
   useEffect(() => {
@@ -62,11 +63,12 @@ const ChatInterface = forwardRef<HTMLDivElement, ChatInterfaceProps>(({ mode }, 
       
       // Create the request
       const request: ChatRequest = {
-  mode,
-  message: content,
-  conversation_history: conversationHistory,
-  file_context: fileContext,
-  selected_tools: selectedTools // Pass selected tools to the backend
+        mode,
+        message: content,
+        conversation_history: conversationHistory,
+        file_context: fileContext,
+        selected_tools: selectedTools, // Pass selected tools to the backend
+        consistency_check: useConsistencyCheck // Pass consistency check flag to the backend
       };
       
       // Send the request to the API
@@ -82,7 +84,8 @@ const ChatInterface = forwardRef<HTMLDivElement, ChatInterfaceProps>(({ mode }, 
         // Only include toolCalls and toolResults if the LLM's response is empty
         // This prevents displaying raw tool output when the LLM generates a conversational response
         toolCalls: response.response ? undefined : response.tool_calls,
-        toolResults: response.response ? undefined : response.tool_results
+        toolResults: response.response ? undefined : response.tool_results,
+        consistencyInfo: response.consistency_info
       };
       
       setMessages((prev) => [...prev, assistantMessage]);
@@ -203,13 +206,15 @@ const ChatInterface = forwardRef<HTMLDivElement, ChatInterfaceProps>(({ mode }, 
       
       <div className="px-4 pb-4">
         <MessageInput 
-          onSendMessage={handleSendMessage} 
-          onFileUpload={handleFileUpload}
-          mode={mode} 
-          isLoading={isLoading}
-          selectedTools={selectedTools}
-          setSelectedTools={setSelectedTools}
-        />
+        onSendMessage={handleSendMessage} 
+        onFileUpload={handleFileUpload} 
+        mode={mode} 
+        isLoading={isLoading} 
+        selectedTools={selectedTools}
+        setSelectedTools={setSelectedTools}
+        useConsistencyCheck={useConsistencyCheck}
+        setUseConsistencyCheck={setUseConsistencyCheck}
+      />
       </div>
     </div>
   );

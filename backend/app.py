@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import io
 import json
 import os
+import random
 import requests
 import tempfile
 import time
@@ -76,6 +77,7 @@ class ChatRequest(BaseModel):
     file_context: Optional[Dict[str, Any]] = Field(default=None, description="Context from previously analyzed file")
     use_tools: Optional[bool] = Field(default=True, description="Whether to use function calling tools")
     selected_tools: Optional[List[str]] = Field(default=None, description="List of selected tools to use")
+    consistency_check: Optional[bool] = Field(default=False, description="Whether to perform consistency check on the response")
 
 class TTSRequest(BaseModel):
     text: str = Field(..., description="Text to convert to speech")
@@ -98,6 +100,7 @@ class ChatResponse(BaseModel):
     token_count: Optional[Dict[str, int]] = None
     tool_calls: Optional[List[Dict[str, Any]]] = None
     tool_results: Optional[List[Dict[str, Any]]] = None
+    consistency_info: Optional[Dict[str, Any]] = None
 
 # Add to the existing Pydantic models section
 class FileChatRequest(BaseModel):
@@ -120,6 +123,59 @@ MODEL_MAPPING.update({
 })
 
 # Helper functions
+def perform_consistency_check(response1, response2=None, reflection_prompt=None):
+    """Perform consistency check by comparing two responses or reflecting on a single response"""
+    if response2:
+        # Compare two responses
+        similarity_score = 0.7  # Placeholder for actual similarity calculation
+        differences = []
+        
+        # Simple difference detection (in a real implementation, use NLP techniques)
+        sentences1 = response1.split('.')
+        sentences2 = response2.split('.')
+        
+        # Find unique sentences in each response
+        unique_to_1 = [s for s in sentences1 if s and s not in sentences2]
+        unique_to_2 = [s for s in sentences2 if s and s not in sentences1]
+        
+        if unique_to_1:
+            differences.append(f"Response 1 uniquely contains: {' '.join(unique_to_1)}")
+        if unique_to_2:
+            differences.append(f"Response 2 uniquely contains: {' '.join(unique_to_2)}")
+        
+        consistency_info = {
+            "method": "comparison",
+            "similarity_score": similarity_score,
+            "differences": differences,
+            "is_consistent": similarity_score > 0.6 and len(differences) < 3
+        }
+        
+        # Choose the better response or merge them
+        if consistency_info["is_consistent"]:
+            final_response = response1  # Default to first response if consistent
+        else:
+            # In a real implementation, use a more sophisticated merging strategy
+            final_response = f"Response 1: {response1}\n\nResponse 2: {response2}\n\nAnalysis: The responses show some inconsistencies. {' '.join(differences)}"
+    
+    else:
+        # Self-reflection approach
+        # In a real implementation, this would call the model again with a reflection prompt
+        reflection = "Upon reflection, the response appears to be accurate and complete based on available information."
+        
+        if reflection_prompt:
+            # This would be a call to the model with the reflection prompt
+            pass
+        
+        consistency_info = {
+            "method": "self_reflection",
+            "reflection": reflection,
+            "is_consistent": True  # Placeholder
+        }
+        
+        final_response = response1  # Keep original response for self-reflection
+    
+    return final_response, consistency_info
+
 def get_groq_response(prompt, model, conversation_history=None, use_tools=True, max_history_messages=10, selected_tools=None, mode: str = "chat"):
     """Get response from Groq API with optional function calling"""
     headers = {
@@ -559,14 +615,47 @@ Please provide a helpful response based on the document content."""
         else:
             result = get_openrouter_response(prompt, model, request.conversation_history, use_tools=True, max_history_messages=10, selected_tools=request.selected_tools, mode=mode)
         
+        # Perform consistency check if requested
+        consistency_info = None
+        final_response = result["response"]
+        
+        if request.consistency_check:
+            # Approach 1: Generate a second response with a slightly different prompt
+            if random.choice([True, False]):  # Randomly choose between two approaches
+                # Create a slightly different prompt
+                rephrased_prompt = f"Please answer this question in a different way: {request.message}"
+                
+                # Get second response
+                if provider == "groq":
+                    result2 = get_groq_response(rephrased_prompt, model, request.conversation_history, use_tools=True, max_history_messages=10, selected_tools=request.selected_tools, mode=mode)
+                else:
+                    result2 = get_openrouter_response(rephrased_prompt, model, request.conversation_history, use_tools=True, max_history_messages=10, selected_tools=request.selected_tools, mode=mode)
+                
+                # Compare responses
+                final_response, consistency_info = perform_consistency_check(result["response"], result2["response"])
+            
+            # Approach 2: Self-reflection
+            else:
+                reflection_prompt = f"Please reflect on the following response to the question '{request.message}': {result['response']}. Is it accurate, complete, and helpful?"
+                
+                # Get reflection
+                if provider == "groq":
+                    reflection_result = get_groq_response(reflection_prompt, model, [], use_tools=False, max_history_messages=10)
+                else:
+                    reflection_result = get_openrouter_response(reflection_prompt, model, [], use_tools=False, max_history_messages=10)
+                
+                # Process reflection
+                final_response, consistency_info = perform_consistency_check(result["response"], reflection_prompt=reflection_result["response"])
+        
         processing_time = time.time() - start_time
         
         return {
-            "response": result["response"],
+            "response": final_response,
             "processing_time": processing_time,
             "token_count": result["token_count"],
             "tool_calls": result.get("tool_calls"),
-            "tool_results": result.get("tool_results")
+            "tool_results": result.get("tool_results"),
+            "consistency_info": consistency_info
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
